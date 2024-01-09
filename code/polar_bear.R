@@ -97,12 +97,12 @@ pop_smooth <- r_smooths[c(1:100),]
 pred_smooths <- NULL
 for(i in 1:length(bears)) {
   # smooths for individual i
-  smooth_sub <- subset(r_smooths, smooth == "s(ice_conc,ID)" & ID == bears[i])
+  smooth_sub <- subset(r_smooths, .smooth == "s(ice_conc,ID)" & ID == bears[i])
   
   # add individual deviation to pop-level smooth
-  smooth_sub <- data.frame(ID = bears[i], 
+  smooth_sub <- data.frame(ID = bears[i],
                            ice_conc = smooth_sub$ice_conc,
-                           est = smooth_sub$est + pop_smooth$est)
+                           est = smooth_sub$.estimate + pop_smooth$.estimate)
   
   pred_smooths <- rbind(pred_smooths, smooth_sub)
 }
