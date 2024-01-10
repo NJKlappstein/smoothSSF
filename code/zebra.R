@@ -29,14 +29,14 @@ fit <- gam(cbind(times, stratum) ~
            family = cox.ph, 
            weights = obs)
 
-#########################
-## plot varying coef ##
-#######################
+########################################
+## plot time-varying step length coef ##
+#######################################
 
-# load sampling parameters
+# load sampling parameters used to generate random points
 par <- read.csv("data/zebra_par.csv")
 
-# get smooth terms
+# get smooth estimates for time-varying step length
 smooths <- smooth_estimates(fit, smooth = "s(tod):step", n = 1000)
 
 # translate to mean/sd
@@ -67,12 +67,17 @@ ggplot(df, aes(x = tod, y = beta_L)) +
 #########################
 ## plot spat smooth ##
 #######################
+
+# get observed data to plot 
+obs <- subset(data, obs == 1)
+# get spatial smooth estimates
 spatial <- smooth_estimates(fit, smooth = "s(x,y)")
-plot_grid(ggplot(spatial, aes(x = x, y = y, fill = est)) + 
-            geom_raster() + coord_equal() +
-            scale_fill_distiller(palette = "RdBu" , limits = c(-5.1, 5.1)) +
-            geom_point(aes(x = x, y = y, fill = obs), data = obs, alpha = 0.2, size = 0.1), 
-          labels = "c)")
+
+# plot
+ggplot(spatial, aes(x = x, y = y, fill = est)) + 
+  geom_raster() + coord_equal() +
+  scale_fill_distiller(palette = "RdBu" , limits = c(-5.1, 5.1)) +
+  geom_point(aes(x = x, y = y, fill = obs), data = obs, alpha = 0.2, size = 0.1)
 
 
 
