@@ -1,0 +1,168 @@
+---
+title: "Simulated data: spatial smoothing"
+author: "Natasha Klappstein"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+
+```{r options, include = FALSE}
+knitr::opts_knit$set(root.dir = "..")
+knitr::opts_chunk$set(
+  message = FALSE, error = FALSE, warning = FALSE,
+  comment = NA
+)
+```
+
+This document contains code to reproduce the spatial smoothing example in Appendix B of Klappstein et al. (2024). Note that these results may be slightly different to those in the paper, as we used the `hmmSSF` package in the original analysis, but are using `amt` here for reader clarity. The general idea is to use a spatial smooth to capture select for an ``unknown" centre of attraction.
+
+## Data and setup
+
+```{r packages}
+# load packages
+
+library(mgcv)
+library(gratia)
+library(ggplot2)
+library(wesanderson)
+library(dplyr)
+library(terra)
+library(cowplot)
+library(amt)
+```
+
+The data were simulated from a step selection function with selection for two covariates: i) one randomly generated covariate (called `cov`) with selection $\beta_{cov} = 5$, and ii) distance to a centre of attraction at coordinates (10, 10) (denoted `centre`) with selection $\beta_{centre} = -0.075$. We can load both of these data sources (location and covariate) and translate the covariates back into raster format.
+
+```{r data}
+# load and view location data
+data <- readRDS("data/sim_data.RData")
+head(data)
+
+# load and process raster data
+cov_data <- readRDS("data/cov_data.RData")
+cov <- rast(cov_data[[1]], type = "xyz")
+centre <- rast(cov_data[[2]], type = "xyz")
+names(cov) <- "cov"
+```
+
+Below are plots of the simulated locations overlaid onto each covariate raster.
+
+```{r plot_raster, echo = FALSE}
+library(tidyterra)
+p1 <- ggplot() + 
+  geom_spatraster(data = cov, aes(fill = cov)) +
+  coord_equal() +
+  scale_fill_viridis_c(option = "mako", name = "covariate") + 
+  ylim(c(min(data$y) -4, max(data$y)+4)) +
+  xlim(c(min(data$x)-4, max(data$x)+4)) + 
+  xlab("x") + ylab("y") + 
+  geom_point(data = data, aes(x = x, y = y), 
+             alpha = 0.2, size = 0.1)
+
+p2 <- ggplot() + 
+  geom_spatraster(data = centre, aes(fill = focal_sum)) +
+  coord_equal() +
+  scale_fill_viridis_c(option = "mako", limits = c(0, 41), name = "distance") + 
+  ylim(c(min(data$y) -4, max(data$y)+4)) +
+  xlim(c(min(data$x)-4, max(data$x)+4)) +
+  xlab("x") + ylab("y") +
+  geom_point(data = data, aes(x = x, y = y), 
+             alpha = 0.2, size = 0.1)
+
+plot_grid(p1, p2)
+
+```
+
+## Generating random points
+
+In this example, we will use the `amt` package to generate random points. First, we need to transform our dataset into class `track_xy*`, then we can use `random_steps` to generate 20 random points for each observed location. We use the amt default, which uses a gamma distribution for random step lengths.
+
+```{r}
+
+# create track_xy*
+track <- make_track(data, x, y) |> 
+  steps()
+
+# get random steps
+set.seed(55)
+ssf_data <- random_steps(track, n = 20)
+
+# get covariate values
+ssf_data <- extract_covariates(ssf_data, cov)
+head(ssf_data)
+
+```
+
+## Model fitting
+
+Then, we can add a constant `times` variable for the Cox PH implementation and fit the model in `mgcv`. Our response is `times` in conjunction with the stratum ID (`step_id_`). We're including linear effects for step length `sl_` and the habitat covariate `cov`. However, rather than including the centre of attraction, we're assuming that we do not have that information. Instead, we will include a spatial smooth to account for any remaining spatial heterogeneity not explained by `cov`.
+
+```{r fit, cache = TRUE}
+# add dummy variable for times
+ssf_data$times <- 1
+
+# fit in mgcv
+fit <- gam(cbind(times, step_id_) ~ 
+              sl_ + 
+              cov +
+              s(x2_, y2_), 
+            data = ssf_data,
+            family = cox.ph, 
+            weights = case_)
+```
+
+```{r}
+summary(fit)
+```
+
+## Model interpretation
+
+Our summary indicates that we estimate the effect of the habitat covariate quite well, as the estimate is close to the truth ($\beta_{cov} = 5$). We can also plot the spatial smooth quickly with `gratia`.
+```{r plot}
+gratia::draw(fit, rug = FALSE)
+```
+
+We can also reproduce the plot in the paper with the following code, which allows us to better visualise how the spatial smooth is capturing the centre of attraction.
+
+```{r plot_model, fig.dim = c(9, 4.5)}
+
+# get spatial smooth estimates 
+spatial <- smooth_estimates(fit, smooth = "s(x2_,y2_)")
+
+# plot covariate
+p1a <- ggplot() + 
+  geom_spatraster(data = cov, aes(fill = cov)) +
+  coord_equal() +
+  scale_fill_viridis_c(option = "mako", name = "covariate") + 
+  ylim(c(min(data$y) -4, max(data$y)+4)) +
+  xlim(c(min(data$x)-4, max(data$x)+4)) +
+  xlab("x") + ylab("y") +
+  xlab("x") + ylab("y")
+
+# plot centre of attraction
+p2a <- ggplot() + 
+  geom_spatraster(data = centre, aes(fill = focal_sum)) +
+  coord_equal() +
+  scale_fill_viridis_c(option = "mako", limits = c(0, 41), name = "distance") + 
+  ylim(c(min(data$y) -4, max(data$y)+4)) +
+  xlim(c(min(data$x)-4, max(data$x)+4)) +
+  xlab("x") + ylab("y") +
+  xlab("x") + ylab("y")
+
+# plot spatial smooth
+p3 <- ggplot(spatial, aes(x = x2_, y = y2_, fill = est)) + 
+  geom_raster() + coord_equal() +
+  scale_fill_viridis_c(option = "rocket") + 
+  geom_point(data = data, aes(x = x, y = y, fill = ID), 
+             alpha = 0.2, size = 0.1)
+
+# plot altogether
+plot_grid(p1a, p2a, p3, nrow = 1)
+```
+
+
+
+
+
+
+

@@ -1,0 +1,175 @@
+---
+title: "Polar bear example: random slopes and hierarchical smooths"
+author: "Natasha Klappstein"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r options, include = FALSE}
+knitr::opts_knit$set(root.dir = "..")
+knitr::opts_chunk$set(
+  message = FALSE, error = FALSE, warning = FALSE,
+  comment = NA
+)
+```
+
+## Set-up
+First, we will load the packages we need for the analysis. `mgcv` is the main package for fitting the SSFs. `gratia` is full of useful tools for visualising and extracting `mgcv` outputs.
+```{r packages}
+library(mgcv)
+library(cowplot)
+library(ggplot2)
+library(gratia)
+```
+
+We will be analysing GPS locations from 13 adult polar bears in the Beaufort Sea (provided by Andrew Derocher). The data have already been processed to include random steps, and the `stratum` column indicates the step ID and `obs` indicates whether the location is an observed location (1) or random location (0). `step` are the step lengths (km), `angle` are turning angles (radians), and `ice_conc` is the ice concentration (\%).
+
+```{r pb_data}
+# load location data
+data <- readRDS("data/polar_bear.RData")
+head(data)
+```
+
+The objective of the analysis is to account for inter-individual variability in selection for ice concentration using two methods: i) a random slope model which assumes linear patterns of selection for all individuals, and ii) a hierarchical smooth which allows individuals to have non-linear patterns of selection. For both, we need to define a variable for times, which can be set to 1 for all rows.
+```{r}
+# create a dummy variable for times
+data$times <- 1
+```
+
+## Fit random slope model
+
+First, we will fit a random slope model. We are modelling step lengths with a gamma distribution (so we include step and its log as covariates), and turning angles with a von Mises distribution (so we include the cosine of the turning angle). Then, we include a global (linear) term for ice concentration, as well as the random slopes (with `s(ice_conc, ID, bs = "re")`). 
+```{r slopes, cache=TRUE}
+
+# fit with random slopes
+fit_slopes <- gam(cbind(times, stratum) ~ 
+                    step + 
+                    log(step) + 
+                    cos(angle) +
+                    ice_conc + 
+                    s(ice_conc, ID, bs = "re") , 
+                  data = data,
+                  family = cox.ph, 
+                  weights = obs)
+```
+
+We can look at the summary of the model object.
+```{r summary_slopes}
+summary(fit_slopes)
+```
+
+We may also want to visualise the relationship, as well as the estimated slopes for each individual. The basic plotting functions in `gratia` and `mgcv` can easily plot the population-level slope, but it requires custom code to plot each random slope. Below, I predict for each individual and plot. I've hidden the actual plotting code in `ggplot2`, as it's quite long but you can check out the code file for that if you need. 
+
+```{r plot_slopes}
+# define grid of ice concentration to predict over
+conc_grid <- seq(0, 100, 1)
+
+# get slopes for each individual
+bears <- unique(data$ID)
+coefID <- as.vector(coef(fit_slopes)[5:(4+length(bears))]) + coef(fit_slopes)[4]
+
+# predict for each individual
+r_slope_ID <- NULL
+for(i in 1:13) {
+  r_slope <- data.frame(bearID = bears[i], conc = conc_grid, RSS = exp(coefID[i] * conc_grid))
+  r_slope_ID <- rbind(r_slope_ID, r_slope)
+}
+
+```
+
+```{r, fig.height=3.5, fig.width=8, echo = FALSE}
+# create data frame for plotting
+pop_slope <- data.frame(conc = conc_grid, 
+                        RSS = exp(coef(fit_slopes)[4] * conc_grid), 
+                        lower = exp((coef(fit_slopes)[4] - 0.001515 * 1.96) *conc_grid),
+                        upper = exp((coef(fit_slopes)[4] + 0.001515 * 1.96) *conc_grid))
+
+# population estimate
+p1 <- ggplot(data = pop_slope, aes(x = conc, y = RSS)) + 
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "grey70", alpha = 0.5) +
+  geom_line(color = "black", size = 0.75) + 
+  ggtitle("") +
+  ylim(c(0,6)) +
+  ylab(expression(exp(beta[ice] * ice))) +
+  xlab("Ice concentration (%)") +
+  theme_bw() + 
+  theme(legend.position = "none")
+
+# individual-level estimates
+p2 <- ggplot(data = pop_slope, aes(x = conc, y = RSS)) + 
+  geom_line(data = r_slope_ID, color = "firebrick", alpha = 0.5,
+            aes(x = conc, y = RSS, group = bearID))+
+  ggtitle("") +
+  ylim(c(0,6)) +
+  ylab(expression(exp(beta[ice]))) +
+  xlab("Ice concentration (%)") +
+  theme_bw() + 
+  theme(legend.position = "none")
+plot_grid(p1, p2)
+```
+
+
+
+```{r smooths, cache=TRUE}
+# hierarchical smooths
+fit_smooths <- gam(cbind(times, stratum) ~ 
+                     step + 
+                     log(step) + 
+                     cos(angle) +
+                     s(ice_conc, k = 5) + 
+                     s(ice_conc, ID, k = 5, bs = "fs"),
+                   data = data,
+                   method = "REML",
+                   family = cox.ph, 
+                   weights = obs)
+```
+
+```{r summary_sm}
+summary(fit_smooths)
+```
+
+```{r}
+###############################
+# make plot of random smooths #
+###############################
+r_smooths <- smooth_estimates(fit_smooths)
+pop_smooth <- r_smooths[c(1:100),]
+
+r_smooth_ID <- NULL
+for(i in 1:length(bears)) {
+  
+  smooth_sub <- subset(r_smooths, 
+                       smooth == "s(ice_conc,ID)" & ID == bears[i])
+  
+  smooth_sub <- data.frame(ID = bears[i], 
+                           ice_conc = smooth_sub$ice_conc,
+                           est = smooth_sub$est + pop_smooth$est)
+  
+  r_smooth_ID <- rbind(r_smooth_ID, smooth_sub)
+}
+```
+
+
+```{r, fig.height=4.5, fig.width=10, echo = FALSE}
+p3 <- ggplot(data = pop_smooth, aes(x = ice_conc, y = exp(est))) + 
+  geom_ribbon(aes(ymin = exp(est - 1.96 * se), ymax = exp(est + 1.96 * se)), 
+              fill = "grey70", alpha = 0.5) +
+  geom_line(color = "black", size = 0.75) + 
+  ylim(c(0, 2.35)) +
+  ggtitle("") +
+  ylab(expression(exp(f(ice)))) +
+  xlab("Ice concentration (%)") +
+  theme_bw() + 
+  theme(legend.position = "none")
+
+p4 <- ggplot(data = pop_smooth, aes(x = ice_conc, y = exp(est))) + 
+  geom_line(data = r_smooth_ID, color = "royalblue", alpha = 0.6,
+            aes(x = ice_conc, y = exp(est), group = ID))+
+  ylim(c(0, 2.35)) +
+  ggtitle("") +
+  ylab(expression(exp(f(ice)))) +
+  xlab("Ice concentration (%)") +
+  theme_bw() + 
+  theme(legend.position = "none")
+plot_grid(p3, p4)
+```
