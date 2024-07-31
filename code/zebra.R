@@ -40,11 +40,11 @@ par <- read.csv("data/zebra_par.csv")
 smooths <- smooth_estimates(fit, smooth = "s(tod):step", n = 1000)
 
 # translate to mean/sd
-beta_L <- smooths$est / smooths$step[1] - (1/par$scale) 
+beta_L <- smooths$.estimate / smooths$step[1] - (1/par$scale) 
 beta_logL <- fit$coefficients[1] + par$shape - 2
 mean <- -(beta_logL + 2) / (beta_L)
-lower <- (smooths$est - smooths$se * 1.96) / smooths$step[1] - (1/par$scale)
-upper <- (smooths$est + smooths$se * 1.96) / smooths$step[1] - (1/par$scale)
+upper <- (smooths$.estimate + smooths$.se * 1.96) / smooths$step[1] - (1/par$scale)
+lower <- (smooths$.estimate - smooths$.se * 1.96) / smooths$step[1] - (1/par$scale)
 
 #plot
 df <- data.frame(tod = smooths$tod, 
@@ -78,6 +78,3 @@ ggplot(spatial, aes(x = x, y = y, fill = est)) +
   geom_raster() + coord_equal() +
   scale_fill_distiller(palette = "RdBu" , limits = c(-5.1, 5.1)) +
   geom_point(aes(x = x, y = y, fill = obs), data = obs, alpha = 0.2, size = 0.1)
-
-
-
