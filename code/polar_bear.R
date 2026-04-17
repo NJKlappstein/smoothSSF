@@ -12,7 +12,7 @@ library(cowplot)
 library(CircStats)
 
 # load location data and add dummy time column
-data <- readRDS("data/polar_bear.RData")
+data <- read.csv("data/polar_bear.csv")
 data$times <- 1
 head(data)
 
@@ -21,6 +21,7 @@ head(data)
 ###############
 
 # fit with random slopes
+data$ID <- as.factor(data$ID)
 fit_slopes <- gam(cbind(times, stratum) ~ 
                     step + 
                     log(step) + 

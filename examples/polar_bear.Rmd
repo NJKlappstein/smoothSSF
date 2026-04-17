@@ -26,7 +26,7 @@ We will be analysing GPS locations from 13 adult polar bears in the Beaufort Sea
 
 ```{r pb_data}
 # load location data
-data <- readRDS("data/polar_bear.RData")
+data <- read.csv("data/polar_bear.csv")
 head(data)
 ```
 
@@ -40,6 +40,8 @@ data$times <- 1
 
 First, we will fit a random slope model. We are modelling step lengths with a gamma distribution (so we include step and its log as covariates), and turning angles with a von Mises distribution (so we include the cosine of the turning angle). Then, we include a global (linear) term for ice concentration, as well as the random slopes (with `s(ice_conc, ID, bs = "re")`). 
 ```{r slopes, cache=TRUE}
+# set ID to factor
+data$ID <- as.factor(data$ID)
 
 # fit with random slopes
 fit_slopes <- gam(cbind(times, stratum) ~ 
@@ -132,18 +134,19 @@ summary(fit_smooths)
 ###############################
 # make plot of random smooths #
 ###############################
+# get all smooth estimates and isolate pop-level smooth
 r_smooths <- smooth_estimates(fit_smooths)
 pop_smooth <- r_smooths[c(1:100),]
 
 r_smooth_ID <- NULL
 for(i in 1:length(bears)) {
+  # smooths for individual i
+  smooth_sub <- subset(r_smooths, .smooth == "s(ice_conc,ID)" & ID == bears[i])
   
-  smooth_sub <- subset(r_smooths, 
-                       smooth == "s(ice_conc,ID)" & ID == bears[i])
-  
-  smooth_sub <- data.frame(ID = bears[i], 
+  # add individual deviation to pop-level smooth
+  smooth_sub <- data.frame(ID = bears[i],
                            ice_conc = smooth_sub$ice_conc,
-                           est = smooth_sub$est + pop_smooth$est)
+                           est = smooth_sub$.estimate + pop_smooth$.estimate)
   
   r_smooth_ID <- rbind(r_smooth_ID, smooth_sub)
 }
@@ -151,8 +154,8 @@ for(i in 1:length(bears)) {
 
 
 ```{r, fig.height=4.5, fig.width=10, echo = FALSE}
-p3 <- ggplot(data = pop_smooth, aes(x = ice_conc, y = exp(est))) + 
-  geom_ribbon(aes(ymin = exp(est - 1.96 * se), ymax = exp(est + 1.96 * se)), 
+p3 <- ggplot(data = pop_smooth, aes(x = ice_conc, y = exp(.estimate))) + 
+  geom_ribbon(aes(ymin = exp(.estimate - 1.96 * .se), ymax = exp(.estimate + 1.96 * .se)),
               fill = "grey70", alpha = 0.5) +
   geom_line(color = "black", size = 0.75) + 
   ylim(c(0, 2.35)) +
@@ -162,7 +165,7 @@ p3 <- ggplot(data = pop_smooth, aes(x = ice_conc, y = exp(est))) +
   theme_bw() + 
   theme(legend.position = "none")
 
-p4 <- ggplot(data = pop_smooth, aes(x = ice_conc, y = exp(est))) + 
+p4 <- ggplot(data = pop_smooth, aes(x = ice_conc, y = exp(.estimate))) + 
   geom_line(data = r_smooth_ID, color = "royalblue", alpha = 0.6,
             aes(x = ice_conc, y = exp(est), group = ID))+
   ylim(c(0, 2.35)) +
