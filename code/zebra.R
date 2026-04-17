@@ -14,7 +14,7 @@ library(dplyr)
 theme_set(theme_bw())
 
 # load and prep data
-data <- readRDS("data/zebra.RData")
+data <- read.csv("data/zebra.csv")
 data$times <- 1 # dummy time variable
 head(data)
 
@@ -33,15 +33,19 @@ fit <- gam(cbind(times, stratum) ~
 ## plot time-varying step length coef ##
 #######################################
 
-# load sampling parameters used to generate random points
-par <- read.csv("data/zebra_par.csv")
+# get sampling parameters
+obs <- subset(data, obs == 1)
+mu_samp <- mean(obs$step, na.rm = TRUE)
+sd_samp <- sd(obs$step, na.rm = TRUE)
+scale_samp <- sd_samp^2 / mu_samp
+shape_samp <- mu_samp^2 / scale_samp^2
 
 # get smooth estimates for time-varying step length
 smooths <- smooth_estimates(fit, smooth = "s(tod):step", n = 1000)
 
 # translate to mean/sd
-beta_L <- smooths$.estimate / smooths$step[1] - (1/par$scale) 
-beta_logL <- fit$coefficients[1] + par$shape - 2
+beta_L_tod <- smooths$.estimate / smooths$step[1] - (1/scale_samp) 
+beta_logL_tod <- fit$coefficients[1] + shape_samp - 2
 mean <- -(beta_logL + 2) / (beta_L)
 upper <- (smooths$.estimate + smooths$.se * 1.96) / smooths$step[1] - (1/par$scale)
 lower <- (smooths$.estimate - smooths$.se * 1.96) / smooths$step[1] - (1/par$scale)
@@ -68,13 +72,12 @@ ggplot(df, aes(x = tod, y = beta_L)) +
 ## plot spat smooth ##
 #######################
 
-# get observed data to plot 
-obs <- subset(data, obs == 1)
 # get spatial smooth estimates
 spatial <- smooth_estimates(fit, smooth = "s(x,y)")
 
 # plot
-ggplot(spatial, aes(x = x, y = y, fill = est)) + 
+ggplot(spatial, aes(x = x, y = y, fill = .estimate)) + 
   geom_raster() + coord_equal() +
   scale_fill_distiller(palette = "RdBu" , limits = c(-5.1, 5.1)) +
   geom_point(aes(x = x, y = y, fill = obs), data = obs, alpha = 0.2, size = 0.1)
+

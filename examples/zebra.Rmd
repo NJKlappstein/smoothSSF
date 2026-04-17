@@ -28,7 +28,7 @@ library(ggplot2)
 library(wesanderson)
 library(dplyr)
 
-data <- readRDS("data/zebra.RData")
+data <- read.csv("data/zebra.csv")
 
 ```
 
@@ -87,18 +87,18 @@ Importantly, the plot for a time-varying step length coefficient is not on the s
 
 We need to ``correct" the step length coefficient estimates to get the true $\beta$ estimates (i.e., we need to account for our sampling). To do so, we first need to extract the smooth estimates from the model output. Note that the smooth has been multiplied by the mean step length. 
 ```{r}
-# get smooth terms
-tod <- smooth_estimates(fit_tod, smooth = "s(tod):step", n = 1000)
-head(tod)
+# get smooth estimates for time-varying step length
+smooths <- smooth_estimates(fit_tod, smooth = "s(tod):step", n = 1000)
+head(smooths)
 ```
 
 Then, we can correct the estimates. There are essentially two things happening in the code below: i) scale the estimates by the mean step (i.e., divide the estimate by the mean step because the smooth was multiplied by the mean step to produce the estimates within the `smooth_estimates()` output), and ii) perform the parameter corrections (Table 1 of Klappstein et al. 2024).
 
 ```{r, fig.dim = c(4.5, 3.5)}
 # translate to mean/sd
-beta_L_tod <- tod$est / tod$step[1] - (1/scale_samp) 
+beta_L_tod <- smooths$.estimate / smooths$step[1] - (1/scale_samp) 
 beta_logL_tod <- fit_tod$coefficients[1] + shape_samp - 2
-plot(beta_L_tod ~ tod$tod, type = "l")
+plot(beta_L_tod ~ smooths$tod, type = "l")
 ```
 
 Now that we have the correct $\beta$ estimates for step length, we can convert this to the mean step length and plot this as a function of time of day.
@@ -108,7 +108,7 @@ mean_tod <- -(beta_logL_tod + 2) / (beta_L_tod)
 sd_tod <- -sqrt(beta_logL_tod + 2) / beta_L_tod
 
 #plot
-tod_df <- data.frame(tod = tod$tod, 
+tod_df <- data.frame(tod = smooths$tod, 
                      mean = mean_tod, 
                      sd = sd_tod)
 
