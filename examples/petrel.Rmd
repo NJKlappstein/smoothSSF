@@ -30,6 +30,7 @@ library(ggplot2)
 library(gratia)
 library(hmmSSF)
 library(moveHMM)
+library(lubridate)
 library(sp)
 library(cowplot)
 ```
@@ -40,8 +41,9 @@ The data for this example were obtained from MoveBank (Descamps et al. 2016b). W
 
 
 ```{r data}
-# load data
-data <- readRDS("data/petrel.RData")
+# load and format data
+data <- read.csv("data/petrel.csv")
+data$time <- ymd_hms(data$time)
 
 head(data)
 ```
